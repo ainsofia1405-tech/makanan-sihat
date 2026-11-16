@@ -1,0 +1,1842 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Misi Makanan Seimbang 3D - First Person View</title>
+    <!-- Tailwind CSS untuk susun atur responsif -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js untuk enjin grafik 3D -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Tone.js untuk muzik latar dan kesan bunyi sintesis tanpa pautan luar -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Font Google Inter & Fredoka untuk gaya permainan ceria -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* Gaya khusus permainan 3D dan kawalan sentuh */
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0f172a;
+            font-family: 'Inter', sans-serif;
+            touch-action: none; /* Menghalang tatalan atau zum tidak sengaja pada telefon */
+        }
+
+        h1, h2, h3, .font-game {
+            font-family: 'Fredoka', sans-serif;
+        }
+
+        #game-container {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Crosshair tengah skrin FPV */
+        #crosshair {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            width: 18px;
+            height: 18px;
+            transform: translate(-50%, -50%);
+            border: 2.5px solid rgba(255, 255, 255, 0.85);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 15;
+            transition: all 0.15s ease;
+            box-shadow: 0 0 8px rgba(0, 0, 0, 0.5);
+        }
+
+        #crosshair::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 4px;
+            height: 4px;
+            background: white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        #crosshair.active-target {
+            width: 30px;
+            height: 30px;
+            border-color: #facc15;
+            background-color: rgba(250, 204, 21, 0.2);
+            box-shadow: 0 0 15px rgba(250, 204, 21, 0.8);
+        }
+
+        /* Kayu Ria Maya (Virtual Joystick) untuk Telefon & Tablet */
+        #joystick-zone {
+            position: fixed;
+            bottom: 24px;
+            left: 24px;
+            width: 130px;
+            height: 130px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.14);
+            border: 2px solid rgba(255, 255, 255, 0.35);
+            backdrop-filter: blur(4px);
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        #joystick-knob {
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #38bdf8, #0284c7);
+            border: 2px solid #ffffff;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            transform: translate(0px, 0px);
+            transition: transform 0.05s linear;
+            pointer-events: none;
+        }
+
+        /* Zon leretan kamera di sebelah kanan skrin */
+        #look-zone {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 55%;
+            height: 100%;
+            z-index: 10;
+        }
+
+        /* Butang Aksi 3D Gaya Permainan */
+        .btn-game {
+            transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.12s ease;
+        }
+        .btn-game:active {
+            transform: scale(0.93) translateY(2px);
+        }
+
+        /* Animasi pop-up maklum balas */
+        @keyframes popFloat {
+            0% { opacity: 0; transform: translate(-50%, 10px) scale(0.85); }
+            15% { opacity: 1; transform: translate(-50%, 0px) scale(1.05); }
+            85% { opacity: 1; transform: translate(-50%, -12px) scale(1); }
+            100% { opacity: 0; transform: translate(-50%, -25px) scale(0.95); }
+        }
+
+        .feedback-toast {
+            animation: popFloat 2.2s forwards ease-out;
+        }
+
+        /* Tombol Suis (Toggle Switch) untuk Tetapan */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #10b981;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #10b981;
+        }
+    </style>
+</head>
+<body class="text-white antialiased">
+
+    <!-- Kanvas Dunia 3D -->
+    <div id="game-container"></div>
+
+    <!-- Zon Kawalan Sentuh Kamera (Separuh Kanan Skrin) -->
+    <div id="look-zone" class="hidden"></div>
+
+    <!-- Crosshair FPV -->
+    <div id="crosshair" class="hidden"></div>
+
+    <!-- Prompt Interaksi Tengah Skrin -->
+    <div id="target-prompt" class="fixed top-[56%] left-1/2 -translate-x-1/2 z-20 pointer-events-none hidden">
+        <div id="target-prompt-badge" class="px-4 py-1.5 rounded-full bg-slate-900/85 border border-yellow-400/70 text-yellow-300 text-xs sm:text-sm font-bold shadow-lg backdrop-blur-md whitespace-nowrap">
+            Tekan AMBIL untuk pegang makanan
+        </div>
+    </div>
+
+    <!-- Paparan Maklum Balas Skor / Pendidikan Pemakanan -->
+    <div id="feedback-container" class="fixed top-24 left-1/2 z-30 pointer-events-none w-11/12 max-w-md"></div>
+
+    <!-- HUD UTAMA SEMASA BERMAIN -->
+    <div id="hud-overlay" class="fixed inset-0 pointer-events-none z-20 hidden flex flex-col justify-between p-3 sm:p-5">
+        
+        <!-- Baris Atas HUD: Markah, Masa, Nyawa & Butang Settings -->
+        <div class="flex items-start justify-between gap-2 w-full">
+            <!-- Kiri: Markah, Kombo & Nyawa -->
+            <div class="flex flex-wrap items-center gap-2 pointer-events-auto">
+                <div class="bg-slate-900/80 backdrop-blur-md border border-white/15 rounded-2xl px-3.5 py-2 shadow-lg">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Markah</div>
+                    <div id="hud-score" class="font-game text-xl sm:text-2xl font-bold text-emerald-400 leading-none">0</div>
+                </div>
+
+                <div class="bg-slate-900/80 backdrop-blur-md border border-white/15 rounded-2xl px-3.5 py-2 shadow-lg">
+                    <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Nyawa</div>
+                    <div id="hud-lives" class="text-base sm:text-lg leading-none mt-0.5">❤️❤️❤️</div>
+                </div>
+
+                <div id="combo-badge" class="hidden bg-amber-500/90 text-slate-950 rounded-2xl px-3 py-1.5 font-game font-bold text-sm shadow-lg animate-bounce">
+                    🔥 Kombo x2
+                </div>
+            </div>
+
+            <!-- Tengah: Masa & Status Item Dipegang (Desktop/Tablet) -->
+            <div class="hidden md:flex flex-col items-center gap-2">
+                <div class="bg-slate-900/85 backdrop-blur-md border border-white/15 rounded-2xl px-5 py-2 shadow-lg flex items-center gap-3">
+                    <span class="text-xs uppercase tracking-wider text-slate-400 font-bold">Masa:</span>
+                    <span id="hud-timer-desktop" class="font-game text-2xl font-bold text-sky-400">90s</span>
+                </div>
+                <div id="held-status-desktop" class="bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full px-4 py-1 text-xs font-medium text-slate-200">
+                    Tangan Kosong — Pergi ke meja tengah untuk ambil makanan
+                </div>
+            </div>
+
+            <!-- Kanan: Masa (Mobile) & Butang Settings -->
+            <div class="flex items-center gap-2 pointer-events-auto">
+                <div class="md:hidden bg-slate-900/85 backdrop-blur-md border border-white/15 rounded-2xl px-3 py-2 shadow-lg text-center">
+                    <div class="text-[10px] uppercase text-slate-400 font-bold">Masa</div>
+                    <div id="hud-timer-mobile" class="font-game text-lg font-bold text-sky-400 leading-none">90s</div>
+                </div>
+
+                <!-- BUTANG SETTINGS -->
+                <button id="btn-open-settings" aria-label="Tetapan Permainan" class="btn-game bg-slate-900/85 hover:bg-slate-800 active:bg-slate-700 backdrop-blur-md border border-white/20 rounded-2xl p-3 sm:px-4 sm:py-2.5 shadow-xl flex items-center gap-2 text-white font-semibold">
+                    <svg class="w-6 h-6 text-sky-400" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                    </svg>
+                    <span class="hidden sm:inline text-sm">Tetapan</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Baris Bawah HUD: Petunjuk Item Dipegang & Kawalan -->
+        <div class="flex flex-col items-center justify-end w-full gap-2">
+            <!-- Status Item Mobile -->
+            <div id="held-status-mobile" class="md:hidden bg-slate-900/85 backdrop-blur-md border border-white/15 rounded-full px-4 py-1.5 text-xs font-semibold text-center text-slate-100 shadow-md">
+                Ambil makanan di meja tengah!
+            </div>
+
+            <!-- Panduan Ringkas Keyboard (Hanya papar apabila mod Keyboard aktif) -->
+            <div id="keyboard-hint" class="hidden bg-slate-900/75 backdrop-blur-md border border-white/10 rounded-full px-5 py-1.5 text-xs text-slate-300 shadow-lg">
+                <span class="text-sky-400 font-bold">WASD / Anak Panah:</span> Bergerak &nbsp;|&nbsp;
+                <span class="text-sky-400 font-bold">Seret Tetikus / Klik:</span> Lihat &nbsp;|&nbsp;
+                <span class="text-emerald-400 font-bold">E / Space / Klik:</span> Ambil & Hantar
+            </div>
+        </div>
+    </div>
+
+    <!-- KAWALAN SENTUH (VIRTUAL JOYSTICK & BUTANG AKSI) -->
+    <div id="touch-controls-layer" class="hidden">
+        <!-- Kayu Ria Kiri untuk Pergerakan -->
+        <div id="joystick-zone" title="Gerak">
+            <div id="joystick-knob"></div>
+        </div>
+
+        <!-- Butang Aksi Kanan untuk Ambil / Hantar Makanan -->
+        <div class="fixed bottom-6 right-6 z-20 flex flex-col items-end gap-3">
+            <button id="btn-touch-action" class="btn-game w-24 h-24 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 border-4 border-white text-slate-950 font-game font-bold text-base shadow-2xl flex flex-col items-center justify-center leading-tight">
+                <span id="touch-action-icon" class="text-2xl">✋</span>
+                <span id="touch-action-text">AMBIL</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- SKRIN MULA (MAIN MENU) -->
+    <div id="start-screen" class="fixed inset-0 z-40 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-slate-900/95 border border-white/15 rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl text-center my-auto">
+            <div class="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold uppercase tracking-wider mb-3">
+                🥗 Permainan 3D First-Person View
+            </div>
+            <h1 class="font-game text-3xl sm:text-4xl font-bold text-white mb-2 tracking-tight">
+                Misi Makanan Seimbang
+            </h1>
+            <p class="text-slate-300 text-sm sm:text-base mb-6">
+                Ambil makanan dari meja hidangan dan kelaskan ke dalam zon yang betul sebelum masa tamat!
+            </p>
+
+            <!-- Kad Panduan Kategori Makanan -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6 text-left">
+                <!-- Kategori Sihat -->
+                <div class="bg-emerald-950/60 border border-emerald-500/40 rounded-2xl p-4">
+                    <div class="flex items-center gap-2 font-game font-bold text-emerald-400 text-base mb-2">
+                        <span>✅</span> MAKANAN SIHAT
+                    </div>
+                    <ul class="text-xs sm:text-sm text-emerald-100 space-y-1.5 font-medium">
+                        <li>💧 Air Kosong</li>
+                        <li>🍚 Nasi Putih</li>
+                        <li>🥦 Sayur-sayuran</li>
+                        <li>🍎 Buah-buahan</li>
+                    </ul>
+                </div>
+
+                <!-- Kategori Tidak Sihat -->
+                <div class="bg-rose-950/60 border border-rose-500/40 rounded-2xl p-4">
+                    <div class="flex items-center gap-2 font-game font-bold text-rose-400 text-base mb-2">
+                        <span>❌</span> TIDAK SIHAT
+                    </div>
+                    <ul class="text-xs sm:text-sm text-rose-100 space-y-1.5 font-medium">
+                        <li>🍕 Pizza</li>
+                        <li>🍔 Burger</li>
+                        <li>🥤 Air Bergas</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Butang Utama -->
+            <div class="flex flex-col sm:flex-row gap-3 justify-center">
+                <button id="btn-start-game" class="btn-game flex-1 py-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-game font-bold text-lg shadow-lg shadow-emerald-500/25">
+                    ▶ MULA BERMAIN
+                </button>
+                <button id="btn-start-settings" class="btn-game py-4 px-6 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-white/15 text-white font-game font-bold text-base flex items-center justify-center gap-2">
+                    ⚙️ TETAPAN
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL TETAPAN (SETTINGS) -->
+    <div id="settings-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-white/20 rounded-3xl max-w-md w-full p-6 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-white/10 pb-4 mb-5">
+                <h2 class="font-game text-2xl font-bold text-white flex items-center gap-2">
+                    <span>⚙️</span> Tetapan Permainan
+                </h2>
+                <button id="btn-close-settings" class="btn-game w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 font-bold">
+                    ✕
+                </button>
+            </div>
+
+            <div class="space-y-5">
+                <!-- 1. Tetapan Lagu (Muzik Latar) -->
+                <div class="flex items-center justify-between bg-slate-800/60 p-3.5 rounded-2xl border border-white/10">
+                    <div>
+                        <div class="font-bold text-sm text-white">🎵 Lagu & Bunyi</div>
+                        <div class="text-xs text-slate-400">Muzik latar ceria & kesan bunyi</div>
+                    </div>
+                    <button id="toggle-music-btn" class="btn-game px-4 py-2 rounded-xl font-bold text-xs bg-emerald-500 text-slate-950 shadow">
+                        HIDUP (ON)
+                    </button>
+                </div>
+
+                <!-- 2. Tetapan Resolusi Grafik -->
+                <div class="bg-slate-800/60 p-3.5 rounded-2xl border border-white/10">
+                    <div class="font-bold text-sm text-white mb-1">🖥️ Resolusi Grafik 3D</div>
+                    <div class="text-xs text-slate-400 mb-3">Laraskan kualiti visual mengikut prestasi peranti</div>
+                    <div class="grid grid-cols-3 gap-2" id="resolution-group">
+                        <button data-res="low" class="res-btn py-2 px-3 rounded-xl text-xs font-bold border border-white/10 bg-slate-700/60 text-slate-300">
+                            Rendah
+                        </button>
+                        <button data-res="medium" class="res-btn py-2 px-3 rounded-xl text-xs font-bold border border-sky-400 bg-sky-500 text-slate-950">
+                            Sederhana
+                        </button>
+                        <button data-res="high" class="res-btn py-2 px-3 rounded-xl text-xs font-bold border border-white/10 bg-slate-700/60 text-slate-300">
+                            Tinggi (HD)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 3. Tetapan Controller (Keyboard atau Touch Screen) -->
+                <div class="bg-slate-800/60 p-3.5 rounded-2xl border border-white/10">
+                    <div class="font-bold text-sm text-white mb-1">🎮 Mod Kawalan (Controller)</div>
+                    <div class="text-xs text-slate-400 mb-3">Pilih kawalan papan kekunci atau skrin sentuh</div>
+                    <div class="grid grid-cols-3 gap-2" id="controller-group">
+                        <button data-ctrl="auto" class="ctrl-btn py-2 px-2 rounded-xl text-xs font-bold border border-sky-400 bg-sky-500 text-slate-950">
+                            Auto
+                        </button>
+                        <button data-ctrl="touch" class="ctrl-btn py-2 px-2 rounded-xl text-xs font-bold border border-white/10 bg-slate-700/60 text-slate-300">
+                            Touch Screen
+                        </button>
+                        <button data-ctrl="keyboard" class="ctrl-btn py-2 px-2 rounded-xl text-xs font-bold border border-white/10 bg-slate-700/60 text-slate-300">
+                            Keyboard
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 4. Tetapan Full Screen -->
+                <div class="flex items-center justify-between bg-slate-800/60 p-3.5 rounded-2xl border border-white/10">
+                    <div>
+                        <div class="font-bold text-sm text-white">⛶ Skrin Penuh (Full Screen)</div>
+                        <div id="fullscreen-status-text" class="text-xs text-slate-400">Paparan penuh untuk pengalaman terbaik</div>
+                    </div>
+                    <button id="btn-toggle-fullscreen" class="btn-game px-4 py-2 rounded-xl font-bold text-xs bg-indigo-500 hover:bg-indigo-400 text-white shadow">
+                        Skrin Penuh
+                    </button>
+                </div>
+            </div>
+
+            <button id="btn-resume-game" class="btn-game w-full mt-6 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-game font-bold text-base shadow-lg">
+                SIMPAN & TERUSKAN
+            </button>
+        </div>
+    </div>
+
+    <!-- SKRIN TAMAT PERMAINAN (GAME OVER) -->
+    <div id="gameover-modal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-white/20 rounded-3xl max-w-md w-full p-6 sm:p-8 text-center shadow-2xl">
+            <div id="gameover-emoji" class="text-5xl mb-2">🏆</div>
+            <h2 id="gameover-title" class="font-game text-3xl font-bold text-white mb-1">Tamat Permainan!</h2>
+            <p id="gameover-subtitle" class="text-slate-400 text-sm mb-6">Hebat! Anda pakar pemakanan seimbang.</p>
+
+            <div class="grid grid-cols-2 gap-3 mb-6">
+                <div class="bg-slate-800/80 rounded-2xl p-3 border border-white/10">
+                    <div class="text-xs text-slate-400">Jumlah Markah</div>
+                    <div id="final-score" class="font-game text-2xl font-bold text-emerald-400">0</div>
+                </div>
+                <div class="bg-slate-800/80 rounded-2xl p-3 border border-white/10">
+                    <div class="text-xs text-slate-400">Makanan Dikelaskan</div>
+                    <div id="final-sorted" class="font-game text-2xl font-bold text-sky-400">0</div>
+                </div>
+            </div>
+
+            <div class="bg-emerald-950/50 border border-emerald-500/30 rounded-2xl p-3.5 text-xs text-emerald-200 mb-6 text-left leading-relaxed">
+                💡 <strong>Tip Kesihatan:</strong> Amalkan konsep <em>Suku-Suku Separuh</em> — suku pinggan nasi, suku sumber protein, dan separuh buah-buahan serta sayur-sayuran, ditambah air kosong!
+            </div>
+
+            <button id="btn-restart-game" class="btn-game w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-game font-bold text-lg shadow-lg">
+                🔄 MAIN SEMULA
+            </button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * =========================================================================
+         * PERMAINAN 3D FIRST-PERSON VIEW: MISI MAKANAN SEIMBANG
+         * Dibina dengan Three.js (Grafik 3D), Tone.js (Audio), dan Kawalan Dwi-Mod
+         * =========================================================================
+         */
+
+        // --- KONFIGURASI DATA MAKANAN ---
+        const FOOD_CATALOG = [
+            // MAKANAN SIHAT
+            {
+                id: 'air_kosong',
+                name: 'Air Kosong',
+                category: 'healthy',
+                emoji: '💧',
+                fact: 'Air kosong menghidratkan badan tanpa gula berlebihan!'
+            },
+            {
+                id: 'nasi',
+                name: 'Nasi Putih',
+                category: 'healthy',
+                emoji: '🍚',
+                fact: 'Nasi membekalkan tenaga karbohidrat utama untuk aktiviti harian!'
+            },
+            {
+                id: 'sayur',
+                name: 'Sayur-sayuran',
+                category: 'healthy',
+                emoji: '🥦',
+                fact: 'Sayur kaya dengan serat, vitamin dan mineral untuk sistem penghadaman!'
+            },
+            {
+                id: 'buah',
+                name: 'Buah-buahan',
+                category: 'healthy',
+                emoji: '🍎',
+                fact: 'Buah-buahan mengandungi antioksidan dan vitamin C yang menguatkan imuniti!'
+            },
+            // MAKANAN TIDAK SIHAT
+            {
+                id: 'pizza',
+                name: 'Pizza',
+                category: 'unhealthy',
+                emoji: '🍕',
+                fact: 'Pizza tinggi lemak tepu, garam dan kalori jika diambil berlebihan!'
+            },
+            {
+                id: 'burger',
+                name: 'Burger',
+                category: 'unhealthy',
+                emoji: '🍔',
+                fact: 'Burger makanan segera mengandungi lemak trans dan natrium yang tinggi!'
+            },
+            {
+                id: 'air_bergas',
+                name: 'Air Bergas',
+                category: 'unhealthy',
+                emoji: '🥤',
+                fact: 'Air bergas mengandungi kandungan gula yang sangat tinggi!'
+            }
+        ];
+
+        // --- KEADAAN PERMAINAN (GAME STATE) ---
+        const state = {
+            isPlaying: false,
+            isPaused: false,
+            score: 0,
+            lives: 3,
+            combo: 0,
+            sortedCount: 0,
+            timeLeft: 90,
+            heldFood: null,         // Objek makanan yang sedang dipegang pemain
+            activeTableFoods: [],   // Senarai makanan di atas meja hidangan
+            targetedFood: null,     // Makanan yang sedang dilihat oleh crosshair
+            targetedZone: null,     // Zon tong ('healthy' atau 'unhealthy') yang dilihat
+
+            // Tetapan pengguna
+            settings: {
+                musicEnabled: true,
+                resolution: 'medium', // 'low', 'medium', 'high'
+                controller: 'auto'    // 'auto', 'touch', 'keyboard'
+            }
+        };
+
+        // --- PEMBOLEHUBAH THREE.JS ---
+        let scene, camera, renderer, clock;
+        let playerVelocity = new THREE.Vector3();
+        let yaw = 0;   // Putaran kiri-kanan kepala
+        let pitch = 0; // Dongakan atas-bawah kepala
+        const PLAYER_HEIGHT = 1.75;
+        const ARENA_LIMIT = 10.5;
+
+        // Kumpulan objek 3D
+        let foodMeshesGroup = new THREE.Group();
+        let heldItemContainer = new THREE.Group();
+        let healthyZoneMesh, unhealthyZoneMesh;
+        let healthyRing, unhealthyRing;
+
+        // --- INPUT KAWALAN ---
+        const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+        let joyVector = { x: 0, y: 0 };
+        let joyTouchId = null;
+        let lookTouchId = null;
+        let lastLookX = 0;
+        let lastLookY = 0;
+        let isMouseDragging = false;
+
+        // --- SISTEM AUDIO (TONE.JS) ---
+        let audioInitialized = false;
+        let bgmSequence = null;
+        let bgmSynth = null;
+        let sfxSynth = null;
+
+        /**
+         * Memulakan enjin audio sintesis Tone.js tanpa fail audio luaran
+         */
+        async function initAudio() {
+            if (audioInitialized) return;
+            try {
+                await Tone.start();
+                // Synth lembut untuk melodi latar
+                bgmSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: 'triangle' },
+                    envelope: { attack: 0.04, decay: 0.2, sustain: 0.2, release: 0.5 }
+                }).toDestination();
+                bgmSynth.volume.value = -16;
+
+                // Synth untuk kesan bunyi interaksi
+                sfxSynth = new Tone.PolySynth(Tone.Synth, {
+                    oscillator: { type: 'sine' },
+                    envelope: { attack: 0.01, decay: 0.15, sustain: 0.1, release: 0.3 }
+                }).toDestination();
+                sfxSynth.volume.value = -8;
+
+                // Melodi ceria berulang
+                const melody = [
+                    'C4', 'E4', 'G4', 'E4',
+                    'A4', 'G4', 'E4', 'C4',
+                    'D4', 'F4', 'A4', 'G4',
+                    'E4', 'D4', 'C4', null
+                ];
+
+                let step = 0;
+                bgmSequence = new Tone.Loop((time) => {
+                    if (state.settings.musicEnabled && state.isPlaying && !state.isPaused) {
+                        const note = melody[step % melody.length];
+                        if (note) {
+                            bgmSynth.triggerAttackRelease(note, '8n', time);
+                        }
+                        step++;
+                    }
+                }, '4n');
+
+                Tone.Transport.bpm.value = 115;
+                bgmSequence.start(0);
+                Tone.Transport.start();
+                audioInitialized = true;
+            } catch (err) {
+                console.warn('Audio tidak dapat dimulakan:', err);
+            }
+        }
+
+        function playSound(type) {
+            if (!state.settings.musicEnabled || !audioInitialized || !sfxSynth) return;
+            const now = Tone.now();
+            if (type === 'pickup') {
+                sfxSynth.triggerAttackRelease(['C5', 'G5'], '16n', now);
+            } else if (type === 'correct') {
+                sfxSynth.triggerAttackRelease(['C5', 'E5', 'G5', 'C6'], '16n', now);
+            } else if (type === 'wrong') {
+                sfxSynth.triggerAttackRelease(['F3', 'B2'], '8n', now);
+            }
+        }
+
+        /**
+         * =========================================================================
+         * PEMBINAAN DUNIA 3D & MODEL MAKANAN PROSEDUR
+         * =========================================================================
+         */
+        function initThreeJS() {
+            const container = document.getElementById('game-container');
+            clock = new THREE.Clock();
+
+            // 1. Scene & Atmosfera Cerah Kafeteria Sihat
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xdbeafe);
+            scene.fog = new THREE.FogExp2(0xdbeafe, 0.022);
+
+            // 2. Kamera First-Person View (FPV)
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, PLAYER_HEIGHT, 6.5);
+            camera.rotation.order = 'YXZ';
+
+            // Bekas item yang dipegang di hadapan pandangan pertama pemain
+            heldItemContainer.position.set(0.42, -0.36, -0.85);
+            camera.add(heldItemContainer);
+            scene.add(camera);
+
+            // 3. Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            applyResolutionSetting(state.settings.resolution);
+            container.appendChild(renderer.domElement);
+
+            // 4. Pencahayaan
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.68);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
+            dirLight.position.set(8, 16, 10);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 40;
+            const d = 14;
+            dirLight.shadow.camera.left = -d;
+            dirLight.shadow.camera.right = d;
+            dirLight.shadow.camera.top = d;
+            dirLight.shadow.camera.bottom = -d;
+            scene.add(dirLight);
+
+            // 5. Bina Persekitaran Dewan Pemakanan
+            buildEnvironment();
+
+            // 6. Tambah kumpulan makanan meja
+            scene.add(foodMeshesGroup);
+
+            // Pendengar saiz semula tetingkap
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        /**
+         * Membina lantai berjubin, dinding, meja hidangan tengah, dan 2 zon pengelasan
+         */
+        function buildEnvironment() {
+            // Lantai papan catur lembut
+            const floorSize = 24;
+            const floorGeo = new THREE.PlaneGeometry(floorSize, floorSize);
+            const floorCanvas = document.createElement('canvas');
+            floorCanvas.width = 512;
+            floorCanvas.height = 512;
+            const ctx = floorCanvas.getContext('2d');
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(0, 0, 512, 512);
+            ctx.fillStyle = '#e2e8f0';
+            ctx.fillRect(0, 0, 256, 256);
+            ctx.fillRect(256, 256, 256, 256);
+
+            const floorTex = new THREE.CanvasTexture(floorCanvas);
+            floorTex.wrapS = THREE.RepeatWrapping;
+            floorTex.wrapT = THREE.RepeatWrapping;
+            floorTex.repeat.set(8, 8);
+
+            const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.7 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Dinding sempadan arena
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x93c5fd, roughness: 0.8 });
+            const wallHeight = 4.2;
+            const wallSpecs = [
+                { w: 24, h: wallHeight, d: 0.5, x: 0, y: wallHeight / 2, z: -12 },
+                { w: 24, h: wallHeight, d: 0.5, x: 0, y: wallHeight / 2, z: 12 },
+                { w: 0.5, h: wallHeight, d: 24, x: -12, y: wallHeight / 2, z: 0 },
+                { w: 0.5, h: wallHeight, d: 24, x: 12, y: wallHeight / 2, z: 0 }
+            ];
+            wallSpecs.forEach(w => {
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(w.w, w.h, w.d), wallMat);
+                mesh.position.set(w.x, w.y, w.z);
+                mesh.receiveShadow = true;
+                scene.add(mesh);
+            });
+
+            // MEJA HIDANGAN TENGAH (Tempat makanan muncul)
+            const tableTop = new THREE.Mesh(
+                new THREE.BoxGeometry(5.6, 0.25, 2.2),
+                new THREE.MeshStandardMaterial({ color: 0xfef3c7, roughness: 0.4 })
+            );
+            tableTop.position.set(0, 0.95, 1.2);
+            tableTop.castShadow = true;
+            tableTop.receiveShadow = true;
+            scene.add(tableTop);
+
+            const tableBase = new THREE.Mesh(
+                new THREE.BoxGeometry(5.0, 0.95, 1.7),
+                new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.6 })
+            );
+            tableBase.position.set(0, 0.475, 1.2);
+            tableBase.castShadow = true;
+            scene.add(tableBase);
+
+            // Papan tanda meja
+            const tableSign = createTextBanner('MEJA HIDANGAN MAKANAN', '#1e293b', '#facc15');
+            tableSign.position.set(0, 2.2, 1.2);
+            scene.add(tableSign);
+
+            // ZON KIRI: TONG MAKANAN SIHAT (HIJAU)
+            const healthyGroup = createSortingBin(
+                -5.8, -5.2,
+                0x10b981,
+                'MAKANAN SIHAT',
+                'Air Kosong • Nasi • Sayur • Buah'
+            );
+            healthyZoneMesh = healthyGroup.bin;
+            healthyRing = healthyGroup.ring;
+            scene.add(healthyGroup.group);
+
+            // ZON KANAN: TONG MAKANAN TIDAK SIHAT (MERAH)
+            const unhealthyGroup = createSortingBin(
+                5.8, -5.2,
+                0xef4444,
+                'TIDAK SIHAT',
+                'Pizza • Burger • Air Bergas'
+            );
+            unhealthyZoneMesh = unhealthyGroup.bin;
+            unhealthyRing = unhealthyGroup.ring;
+            scene.add(unhealthyGroup.group);
+        }
+
+        /**
+         * Membina Zon Tong Pengelasan 3D dengan papan tanda kanvas berkualiti tinggi
+         */
+        function createSortingBin(x, z, colorHex, title, subtitle) {
+            const group = new THREE.Group();
+            group.position.set(x, 0, z);
+
+            // Tapak platform bercahaya
+            const platform = new THREE.Mesh(
+                new THREE.CylinderGeometry(2.1, 2.3, 0.2, 32),
+                new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.3 })
+            );
+            platform.position.y = 0.1;
+            platform.receiveShadow = true;
+            group.add(platform);
+
+            // Bakul/Tong penerima
+            const bin = new THREE.Mesh(
+                new THREE.CylinderGeometry(1.4, 1.1, 1.35, 24),
+                new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.35 })
+            );
+            bin.position.y = 0.8;
+            bin.castShadow = true;
+            group.add(bin);
+
+            // Gelung neon terapung
+            const ring = new THREE.Mesh(
+                new THREE.TorusGeometry(1.65, 0.08, 12, 36),
+                new THREE.MeshBasicMaterial({ color: 0xffffff })
+            );
+            ring.rotation.x = Math.PI / 2;
+            ring.position.y = 1.65;
+            group.add(ring);
+
+            // Papan tanda besar di atas tong
+            const banner = createTextBanner(title, '#' + colorHex.toString(16).padStart(6, '0'), '#ffffff', subtitle);
+            banner.position.set(0, 3.1, 0);
+            // Pusing menghadap arah pemain di tengah
+            banner.lookAt(0, 3.1, 4);
+            group.add(banner);
+
+            return { group, bin, ring };
+        }
+
+        /**
+         * Menjana papan tanda teks 3D menggunakan CanvasTexture
+         */
+        function createTextBanner(title, bgColor, textColor, subtitle = '') {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 160;
+            const ctx = canvas.getContext('2d');
+
+            // Latar belakang bulat
+            ctx.fillStyle = bgColor;
+            ctx.beginPath();
+            ctx.roundRect(10, 10, 492, 140, 28);
+            ctx.fill();
+
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
+
+            // Tajuk utama
+            ctx.fillStyle = textColor;
+            ctx.font = 'bold 42px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(title, 256, subtitle ? 64 : 82);
+
+            if (subtitle) {
+                ctx.fillStyle = 'rgba(255,255,255,0.92)';
+                ctx.font = '600 22px sans-serif';
+                ctx.fillText(subtitle, 256, 114);
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
+            const mesh = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 1.06), mat);
+            return mesh;
+        }
+
+        /**
+         * =========================================================================
+         * PENJANA MODEL 3D PROSEDUR BAGI SETIAP JENIS MAKANAN
+         * =========================================================================
+         */
+        function createFood3DModel(foodId) {
+            const root = new THREE.Group();
+
+            switch (foodId) {
+                case 'air_kosong': {
+                    // Botol air mineral jernih dengan penutup biru
+                    const body = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.16, 0.16, 0.52, 20),
+                        new THREE.MeshStandardMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.75, roughness: 0.1 })
+                    );
+                    body.position.y = 0.26;
+                    root.add(body);
+
+                    const label = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.165, 0.165, 0.16, 20),
+                        new THREE.MeshStandardMaterial({ color: 0xffffff })
+                    );
+                    label.position.y = 0.28;
+                    root.add(label);
+
+                    const neck = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.07, 0.15, 0.12, 16),
+                        new THREE.MeshStandardMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.8 })
+                    );
+                    neck.position.y = 0.57;
+                    root.add(neck);
+
+                    const cap = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.075, 0.075, 0.08, 16),
+                        new THREE.MeshStandardMaterial({ color: 0x0284c7 })
+                    );
+                    cap.position.y = 0.66;
+                    root.add(cap);
+                    break;
+                }
+
+                case 'nasi': {
+                    // Mangkuk putih berisi timbunan nasi gebu
+                    const bowl = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.28, 0.16, 0.2, 24),
+                        new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3 })
+                    );
+                    bowl.position.y = 0.1;
+                    root.add(bowl);
+
+                    const riceMound = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.25, 20, 16, 0, Math.PI * 2, 0, Math.PI * 0.55),
+                        new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 })
+                    );
+                    riceMound.position.y = 0.18;
+                    root.add(riceMound);
+                    break;
+                }
+
+                case 'sayur': {
+                    // Brokoli hijau segar & lobak merah
+                    const stem = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.08, 0.1, 0.28, 12),
+                        new THREE.MeshStandardMaterial({ color: 0x86efac })
+                    );
+                    stem.position.set(-0.06, 0.14, 0);
+                    root.add(stem);
+
+                    const floretMat = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.7 });
+                    const offsets = [[0, 0.34, 0], [-0.12, 0.28, 0.08], [0.1, 0.29, -0.06], [0, 0.3, -0.1]];
+                    offsets.forEach(([ox, oy, oz]) => {
+                        const puff = new THREE.Mesh(new THREE.DodecahedronGeometry(0.14, 1), floretMat);
+                        puff.position.set(ox - 0.06, oy, oz);
+                        root.add(puff);
+                    });
+
+                    // Lobak merah kecil di sisi
+                    const carrot = new THREE.Mesh(
+                        new THREE.ConeGeometry(0.06, 0.34, 12),
+                        new THREE.MeshStandardMaterial({ color: 0xf97316 })
+                    );
+                    carrot.position.set(0.18, 0.12, 0.08);
+                    carrot.rotation.z = -0.9;
+                    root.add(carrot);
+                    break;
+                }
+
+                case 'buah': {
+                    // Epal merah berkilat & pisang kuning
+                    const apple = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.18, 20, 20),
+                        new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.25 })
+                    );
+                    apple.position.set(-0.1, 0.18, 0);
+                    root.add(apple);
+
+                    const leaf = new THREE.Mesh(
+                        new THREE.BoxGeometry(0.1, 0.02, 0.05),
+                        new THREE.MeshStandardMaterial({ color: 0x22c55e })
+                    );
+                    leaf.position.set(-0.05, 0.37, 0);
+                    leaf.rotation.z = 0.4;
+                    root.add(leaf);
+
+                    const banana = new THREE.Mesh(
+                        new THREE.TorusGeometry(0.2, 0.05, 10, 20, Math.PI * 0.8),
+                        new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.4 })
+                    );
+                    banana.position.set(0.14, 0.2, 0.06);
+                    banana.rotation.z = -0.5;
+                    root.add(banana);
+                    break;
+                }
+
+                case 'pizza': {
+                    // Potongan segi tiga pizza berkeju & pepperoni
+                    const slice = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.32, 0.32, 0.06, 3),
+                        new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.5 })
+                    );
+                    slice.position.y = 0.08;
+                    root.add(slice);
+
+                    const pepMat = new THREE.MeshStandardMaterial({ color: 0xdc2626 });
+                    [[-0.04, 0.115, 0.04], [0.06, 0.115, -0.02], [-0.02, 0.115, -0.1]].forEach(([px, py, pz]) => {
+                        const pep = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.015, 12), pepMat);
+                        pep.position.set(px, py, pz);
+                        root.add(pep);
+                    });
+                    break;
+                }
+
+                case 'burger': {
+                    // Roti bawah, daging, keju, salad & roti atas
+                    const bunMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.5 });
+                    const bottomBun = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.2, 0.08, 20), bunMat);
+                    bottomBun.position.y = 0.04;
+                    root.add(bottomBun);
+
+                    const patty = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.23, 0.23, 0.07, 20),
+                        new THREE.MeshStandardMaterial({ color: 0x451a03, roughness: 0.8 })
+                    );
+                    patty.position.y = 0.11;
+                    root.add(patty);
+
+                    const cheese = new THREE.Mesh(
+                        new THREE.BoxGeometry(0.34, 0.02, 0.34),
+                        new THREE.MeshStandardMaterial({ color: 0xfacc15 })
+                    );
+                    cheese.position.y = 0.155;
+                    cheese.rotation.y = 0.4;
+                    root.add(cheese);
+
+                    const topBun = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.22, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.5),
+                        bunMat
+                    );
+                    topBun.position.y = 0.16;
+                    root.add(topBun);
+                    break;
+                }
+
+                case 'air_bergas': {
+                    // Tin minuman berkarbonat merah dengan penyedut minuman
+                    const can = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.14, 0.14, 0.38, 20),
+                        new THREE.MeshStandardMaterial({ color: 0xdc2626, metalness: 0.4, roughness: 0.25 })
+                    );
+                    can.position.y = 0.19;
+                    root.add(can);
+
+                    const stripe = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.143, 0.143, 0.1, 20),
+                        new THREE.MeshStandardMaterial({ color: 0xffffff })
+                    );
+                    stripe.position.y = 0.2;
+                    root.add(stripe);
+
+                    const straw = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.015, 0.015, 0.22, 8),
+                        new THREE.MeshStandardMaterial({ color: 0xfacc15 })
+                    );
+                    straw.position.set(0.04, 0.44, 0);
+                    straw.rotation.z = -0.25;
+                    root.add(straw);
+                    break;
+                }
+            }
+
+            // Aktifkan bayang-bayang untuk semua komponen makanan
+            root.traverse(child => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                }
+            });
+
+            return root;
+        }
+
+        /**
+         * =========================================================================
+         * LOGIK PERMAINAN: PENJANAAN MAKANAN, PENGAMBILAN & PENGELASAN
+         * =========================================================================
+         */
+        function spawnTableFoods() {
+            // Kosongkan meja terlebih dahulu
+            while (foodMeshesGroup.children.length > 0) {
+                foodMeshesGroup.remove(foodMeshesGroup.children[0]);
+            }
+            state.activeTableFoods = [];
+
+            // Letak 3 slot makanan di atas meja hidangan tengah
+            const slotX = [-1.8, 0, 1.8];
+            slotX.forEach((xPos, idx) => {
+                spawnSingleFoodAtSlot(xPos, idx);
+            });
+        }
+
+        function spawnSingleFoodAtSlot(xPos, slotIndex) {
+            // Pilih makanan rawak daripada katalog 7 jenis makanan
+            const foodData = FOOD_CATALOG[Math.floor(Math.random() * FOOD_CATALOG.length)];
+            const meshGroup = createFood3DModel(foodData.id);
+            meshGroup.position.set(xPos, 1.12, 1.2);
+            meshGroup.scale.set(1.45, 1.45, 1.45);
+
+            // Tambah label terapung kecil di atas makanan
+            const labelSprite = createFloatingFoodTag(`${foodData.emoji} ${foodData.name}`);
+            labelSprite.position.set(0, 0.85, 0);
+            meshGroup.add(labelSprite);
+
+            // Simpan metadata
+            meshGroup.userData = {
+                foodData,
+                slotX: xPos,
+                slotIndex,
+                baseY: 1.12,
+                phase: Math.random() * Math.PI * 2
+            };
+
+            foodMeshesGroup.add(meshGroup);
+            state.activeTableFoods.push(meshGroup);
+        }
+
+        function createFloatingFoodTag(text) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 320;
+            canvas.height = 72;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+            ctx.beginPath();
+            ctx.roundRect(8, 8, 304, 56, 20);
+            ctx.fill();
+
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 26px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, 160, 37);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(1.3, 0.3, 1);
+            return sprite;
+        }
+
+        /**
+         * Mengesan objek di hadapan pemain (sama ada makanan di meja atau zon tong)
+         */
+        function updateTargetDetection() {
+            const crosshair = document.getElementById('crosshair');
+            const promptWrap = document.getElementById('target-prompt');
+            const promptBadge = document.getElementById('target-prompt-badge');
+            const touchBtn = document.getElementById('btn-touch-action');
+            const touchIcon = document.getElementById('touch-action-icon');
+            const touchText = document.getElementById('touch-action-text');
+
+            state.targetedFood = null;
+            state.targetedZone = null;
+
+            const camDir = new THREE.Vector3();
+            camera.getWorldDirection(camDir);
+
+            // Jika tangan kosong: cari makanan terdekat dalam jarak jangkauan & arah pandangan
+            if (!state.heldFood) {
+                let bestDot = 0.86;
+                state.activeTableFoods.forEach(foodObj => {
+                    const toFood = new THREE.Vector3().subVectors(foodObj.position, camera.position);
+                    const dist = toFood.length();
+                    if (dist < 4.2) {
+                        toFood.normalize();
+                        const dot = camDir.dot(toFood);
+                        if (dot > bestDot) {
+                            bestDot = dot;
+                            state.targetedFood = foodObj;
+                        }
+                    }
+                });
+
+                if (state.targetedFood) {
+                    const f = state.targetedFood.userData.foodData;
+                    crosshair.classList.add('active-target');
+                    promptWrap.classList.remove('hidden');
+                    promptBadge.textContent = `AMBIL: ${f.emoji} ${f.name.toUpperCase()}`;
+                    promptBadge.className = 'px-4 py-1.5 rounded-full bg-amber-500 text-slate-950 text-xs sm:text-sm font-extrabold shadow-lg';
+
+                    touchIcon.textContent = '✋';
+                    touchText.textContent = 'AMBIL';
+                    touchBtn.className = 'btn-game w-24 h-24 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 border-4 border-white text-slate-950 font-game font-bold text-base shadow-2xl flex flex-col items-center justify-center leading-tight';
+                } else {
+                    crosshair.classList.remove('active-target');
+                    promptWrap.classList.add('hidden');
+                    touchIcon.textContent = '✋';
+                    touchText.textContent = 'AMBIL';
+                    touchBtn.className = 'btn-game w-24 h-24 rounded-full bg-slate-800/80 border-2 border-white/40 text-white/70 font-game font-bold text-base shadow-xl flex flex-col items-center justify-center leading-tight';
+                }
+            } else {
+                // Jika sedang memegang makanan: semak jarak ke Zon Sihat (-5.8, -5.2) atau Zon Tidak Sihat (5.8, -5.2)
+                const distHealthy = Math.hypot(camera.position.x - (-5.8), camera.position.z - (-5.2));
+                const distUnhealthy = Math.hypot(camera.position.x - 5.8, camera.position.z - (-5.2));
+
+                if (distHealthy < 3.6) {
+                    state.targetedZone = 'healthy';
+                } else if (distUnhealthy < 3.6) {
+                    state.targetedZone = 'unhealthy';
+                }
+
+                if (state.targetedZone) {
+                    crosshair.classList.add('active-target');
+                    promptWrap.classList.remove('hidden');
+                    const isH = state.targetedZone === 'healthy';
+                    promptBadge.textContent = isH ? '✅ HANTAR KE ZON SIHAT' : '❌ HANTAR KE ZON TIDAK SIHAT';
+                    promptBadge.className = isH
+                        ? 'px-4 py-1.5 rounded-full bg-emerald-500 text-slate-950 text-xs sm:text-sm font-extrabold shadow-lg'
+                        : 'px-4 py-1.5 rounded-full bg-rose-500 text-white text-xs sm:text-sm font-extrabold shadow-lg';
+
+                    touchIcon.textContent = '📥';
+                    touchText.textContent = 'HANTAR';
+                    touchBtn.className = 'btn-game w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 border-4 border-white text-slate-950 font-game font-bold text-base shadow-2xl flex flex-col items-center justify-center leading-tight';
+                } else {
+                    crosshair.classList.remove('active-target');
+                    promptWrap.classList.add('hidden');
+                    touchIcon.textContent = '📥';
+                    touchText.textContent = 'HANTAR';
+                    touchBtn.className = 'btn-game w-24 h-24 rounded-full bg-sky-600/85 border-2 border-white/70 text-white font-game font-bold text-base shadow-xl flex flex-col items-center justify-center leading-tight';
+                }
+            }
+        }
+
+        /**
+         * Melaksanakan aksi Ambil Makanan atau Hantar Makanan ke Tong
+         */
+        function triggerPrimaryAction() {
+            if (!state.isPlaying || state.isPaused) return;
+
+            // 1. Ambil makanan jika tangan kosong dan sasaran sah
+            if (!state.heldFood && state.targetedFood) {
+                const selectedObj = state.targetedFood;
+                const { foodData, slotX, slotIndex } = selectedObj.userData;
+
+                // Keluarkan dari meja
+                foodMeshesGroup.remove(selectedObj);
+                state.activeTableFoods = state.activeTableFoods.filter(item => item !== selectedObj);
+
+                // Paparkan model 3D di tangan pemain (FPV)
+                while (heldItemContainer.children.length > 0) {
+                    heldItemContainer.remove(heldItemContainer.children[0]);
+                }
+                const handModel = createFood3DModel(foodData.id);
+                handModel.scale.set(0.95, 0.95, 0.95);
+                heldItemContainer.add(handModel);
+
+                state.heldFood = foodData;
+                playSound('pickup');
+                updateHeldHUD();
+
+                // Munculkan makanan baharu di meja selepas 0.8 saat
+                setTimeout(() => {
+                    if (state.isPlaying) {
+                        spawnSingleFoodAtSlot(slotX, slotIndex);
+                    }
+                }, 800);
+                return;
+            }
+
+            // 2. Hantar makanan jika berada di zon pengelasan
+            if (state.heldFood && state.targetedZone) {
+                classifyFood(state.targetedZone);
+            }
+        }
+
+        /**
+         * Menilai ketepatan pengelasan makanan (Sihat vs Tidak Sihat)
+         */
+        function classifyFood(chosenZone) {
+            const food = state.heldFood;
+            if (!food) return;
+
+            const isCorrect = food.category === chosenZone;
+
+            // Kosongkan tangan pemain
+            while (heldItemContainer.children.length > 0) {
+                heldItemContainer.remove(heldItemContainer.children[0]);
+            }
+            state.heldFood = null;
+            updateHeldHUD();
+
+            if (isCorrect) {
+                state.combo += 1;
+                const pointsEarned = 100 + (state.combo > 1 ? (state.combo - 1) * 25 : 0);
+                state.score += pointsEarned;
+                state.sortedCount += 1;
+                playSound('correct');
+                showFeedbackToast(
+                    `✅ TEPAT (+${pointsEarned})! ${food.name}`,
+                    food.fact,
+                    true
+                );
+            } else {
+                state.combo = 0;
+                state.lives -= 1;
+                playSound('wrong');
+                const properLabel = food.category === 'healthy' ? 'MAKANAN SIHAT' : 'TIDAK SIHAT';
+                showFeedbackToast(
+                    `❌ SALAH! ${food.name} ialah ${properLabel}`,
+                    food.fact,
+                    false
+                );
+
+                if (state.lives <= 0) {
+                    endGame(false);
+                }
+            }
+
+            updateHUD();
+        }
+
+        function showFeedbackToast(title, subtitle, isSuccess) {
+            const container = document.getElementById('feedback-container');
+            container.innerHTML = '';
+
+            const toast = document.createElement('div');
+            toast.className = `feedback-toast mx-auto px-5 py-3 rounded-2xl border-2 shadow-2xl backdrop-blur-md text-center ${
+                isSuccess
+                    ? 'bg-emerald-950/90 border-emerald-400 text-emerald-100'
+                    : 'bg-rose-950/90 border-rose-400 text-rose-100'
+            }`;
+            toast.innerHTML = `
+                <div class="font-game font-bold text-base sm:text-lg">${title}</div>
+                <div class="text-xs sm:text-sm opacity-90 mt-0.5">${subtitle}</div>
+            `;
+            container.appendChild(toast);
+        }
+
+        function updateHeldHUD() {
+            const deskEl = document.getElementById('held-status-desktop');
+            const mobEl = document.getElementById('held-status-mobile');
+
+            if (state.heldFood) {
+                const msg = `Memegang: ${state.heldFood.emoji} ${state.heldFood.name} — Hantar ke Zon Hijau atau Merah!`;
+                deskEl.textContent = msg;
+                deskEl.className = 'bg-amber-500 text-slate-950 rounded-full px-4 py-1 text-xs font-bold shadow-md';
+                mobEl.textContent = `${state.heldFood.emoji} ${state.heldFood.name} → Hantar ke Zon!`;
+                mobEl.className = 'md:hidden bg-amber-500 text-slate-950 rounded-full px-4 py-1.5 text-xs font-extrabold text-center shadow-md';
+            } else {
+                deskEl.textContent = 'Tangan Kosong — Pergi ke meja tengah untuk ambil makanan';
+                deskEl.className = 'bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full px-4 py-1 text-xs font-medium text-slate-200';
+                mobEl.textContent = 'Ambil makanan di meja tengah!';
+                mobEl.className = 'md:hidden bg-slate-900/85 backdrop-blur-md border border-white/15 rounded-full px-4 py-1.5 text-xs font-semibold text-center text-slate-100 shadow-md';
+            }
+        }
+
+        function updateHUD() {
+            document.getElementById('hud-score').textContent = state.score;
+            document.getElementById('hud-lives').textContent = '❤️'.repeat(Math.max(0, state.lives)) + '🖤'.repeat(Math.max(0, 3 - state.lives));
+            document.getElementById('hud-timer-desktop').textContent = `${state.timeLeft}s`;
+            document.getElementById('hud-timer-mobile').textContent = `${state.timeLeft}s`;
+
+            const comboBadge = document.getElementById('combo-badge');
+            if (state.combo >= 2) {
+                comboBadge.classList.remove('hidden');
+                comboBadge.textContent = `🔥 Kombo x${state.combo}`;
+            } else {
+                comboBadge.classList.add('hidden');
+            }
+        }
+
+        /**
+         * =========================================================================
+         * PERGERAKAN PEMAIN & KAMERA FIRST-PERSON VIEW
+         * =========================================================================
+         */
+        function updatePlayerMovement(delta) {
+            const moveSpeed = 6.2;
+
+            // Gabungkan input papan kekunci dan kayu ria sentuh
+            let forwardInput = 0;
+            let rightInput = 0;
+
+            if (keys.w || keys.ArrowUp) forwardInput += 1;
+            if (keys.s || keys.ArrowDown) forwardInput -= 1;
+            if (keys.d || keys.ArrowRight) rightInput += 1;
+            if (keys.a || keys.ArrowLeft) rightInput -= 1;
+
+            if (Math.abs(joyVector.x) > 0.05 || Math.abs(joyVector.y) > 0.05) {
+                rightInput += joyVector.x;
+                forwardInput -= joyVector.y; // y negatif pada skrin ialah ke atas (maju)
+            }
+
+            // Normalkan vektor pergerakan supaya menyerong tidak terlalu laju
+            const inputLen = Math.hypot(forwardInput, rightInput);
+            if (inputLen > 1) {
+                forwardInput /= inputLen;
+                rightInput /= inputLen;
+            }
+
+            // Arah mendatar berdasarkan sudut yaw kamera
+            const sinYaw = Math.sin(yaw);
+            const cosYaw = Math.cos(yaw);
+
+            const moveX = (-sinYaw * forwardInput + cosYaw * rightInput) * moveSpeed * delta;
+            const moveZ = (-cosYaw * forwardInput - sinYaw * rightInput) * moveSpeed * delta;
+
+            let nextX = camera.position.x + moveX;
+            let nextZ = camera.position.z + moveZ;
+
+            // Perlanggaran dinding arena
+            nextX = Math.max(-ARENA_LIMIT, Math.min(ARENA_LIMIT, nextX));
+            nextZ = Math.max(-ARENA_LIMIT, Math.min(ARENA_LIMIT, nextZ));
+
+            // Perlanggaran meja hidangan tengah (x: [-3.1, 3.1], z: [-0.2, 2.6])
+            if (nextX > -3.15 && nextX < 3.15 && nextZ > -0.25 && nextZ < 2.65) {
+                // Benarkan gelongsor di sepanjang tepi meja
+                if (camera.position.z >= 2.65 || camera.position.z <= -0.25) {
+                    nextZ = camera.position.z;
+                } else {
+                    nextX = camera.position.x;
+                }
+            }
+
+            camera.position.x = nextX;
+            camera.position.z = nextZ;
+
+            // Kesan ayunan langkah ringan (head-bob) ketika berjalan
+            if (inputLen > 0.1) {
+                const bobTime = performance.now() * 0.011;
+                camera.position.y = PLAYER_HEIGHT + Math.sin(bobTime) * 0.045;
+            } else {
+                camera.position.y += (PLAYER_HEIGHT - camera.position.y) * 0.15;
+            }
+
+            // Kemas kini putaran kamera FPV
+            camera.rotation.y = yaw;
+            camera.rotation.x = pitch;
+        }
+
+        /**
+         * =========================================================================
+         * SISTEM KAWALAN: TOUCH SCREEN & KEYBOARD
+         * =========================================================================
+         */
+        function setupControls() {
+            // 1. Papan Kekunci (Keyboard)
+            window.addEventListener('keydown', (e) => {
+                if (e.key in keys) keys[e.key] = true;
+                const lower = e.key.toLowerCase();
+                if (lower in keys) keys[lower] = true;
+
+                // Butang E atau Space untuk Ambil / Hantar makanan
+                if ((e.code === 'Space' || lower === 'e') && state.isPlaying && !state.isPaused) {
+                    e.preventDefault();
+                    triggerPrimaryAction();
+                }
+            });
+
+            window.addEventListener('keyup', (e) => {
+                if (e.key in keys) keys[e.key] = false;
+                const lower = e.key.toLowerCase();
+                if (lower in keys) keys[lower] = false;
+            });
+
+            // 2. Tetikus untuk Lihat Sekeliling (Seret atau PointerLock pada Desktop)
+            const gameContainer = document.getElementById('game-container');
+            gameContainer.addEventListener('mousedown', (e) => {
+                if (!state.isPlaying || state.isPaused) return;
+                isMouseDragging = true;
+                lastLookX = e.clientX;
+                lastLookY = e.clientY;
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!state.isPlaying || state.isPaused) return;
+                if (document.pointerLockElement === gameContainer) {
+                    yaw -= e.movementX * 0.0025;
+                    pitch -= e.movementY * 0.0025;
+                    pitch = Math.max(-Math.PI / 2.4, Math.min(Math.PI / 2.4, pitch));
+                } else if (isMouseDragging) {
+                    const dx = e.clientX - lastLookX;
+                    const dy = e.clientY - lastLookY;
+                    lastLookX = e.clientX;
+                    lastLookY = e.clientY;
+                    yaw -= dx * 0.0045;
+                    pitch -= dy * 0.0045;
+                    pitch = Math.max(-Math.PI / 2.4, Math.min(Math.PI / 2.4, pitch));
+                }
+            });
+
+            window.addEventListener('mouseup', () => {
+                isMouseDragging = false;
+            });
+
+            // Klik berganda pada kanvas desktop untuk mengaktifkan Pointer Lock jika disokong
+            gameContainer.addEventListener('dblclick', () => {
+                if (state.isPlaying && !state.isPaused && getEffectiveControllerMode() === 'keyboard') {
+                    if (gameContainer.requestPointerLock) {
+                        try { gameContainer.requestPointerLock(); } catch (err) {}
+                    }
+                }
+            });
+
+            // 3. Kawalan Sentuh Multi-Touch (Kayu Ria Kiri + Leretan Kamera Kanan)
+            const joyZone = document.getElementById('joystick-zone');
+            const joyKnob = document.getElementById('joystick-knob');
+            const maxRadius = 42;
+
+            joyZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                if (joyTouchId === null && e.changedTouches.length > 0) {
+                    const t = e.changedTouches[0];
+                    joyTouchId = t.identifier;
+                    updateJoystickPosition(t.clientX, t.clientY, joyZone, joyKnob, maxRadius);
+                }
+            }, { passive: false });
+
+            joyZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const t = e.changedTouches[i];
+                    if (t.identifier === joyTouchId) {
+                        updateJoystickPosition(t.clientX, t.clientY, joyZone, joyKnob, maxRadius);
+                    }
+                }
+            }, { passive: false });
+
+            const resetJoystick = (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === joyTouchId) {
+                        joyTouchId = null;
+                        joyVector = { x: 0, y: 0 };
+                        joyKnob.style.transform = 'translate(0px, 0px)';
+                    }
+                }
+            };
+            joyZone.addEventListener('touchend', resetJoystick);
+            joyZone.addEventListener('touchcancel', resetJoystick);
+
+            // Zon leretan kanan untuk memusingkan kamera FPV pada telefon/tablet
+            const lookZone = document.getElementById('look-zone');
+            lookZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                if (lookTouchId === null && e.changedTouches.length > 0) {
+                    const t = e.changedTouches[0];
+                    lookTouchId = t.identifier;
+                    lastLookX = t.clientX;
+                    lastLookY = t.clientY;
+                }
+            }, { passive: false });
+
+            lookZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const t = e.changedTouches[i];
+                    if (t.identifier === lookTouchId) {
+                        const dx = t.clientX - lastLookX;
+                        const dy = t.clientY - lastLookY;
+                        lastLookX = t.clientX;
+                        lastLookY = t.clientY;
+
+                        yaw -= dx * 0.0055;
+                        pitch -= dy * 0.0055;
+                        pitch = Math.max(-Math.PI / 2.4, Math.min(Math.PI / 2.4, pitch));
+                    }
+                }
+            }, { passive: false });
+
+            const resetLookTouch = (e) => {
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    if (e.changedTouches[i].identifier === lookTouchId) {
+                        lookTouchId = null;
+                    }
+                }
+            };
+            lookZone.addEventListener('touchend', resetLookTouch);
+            lookZone.addEventListener('touchcancel', resetLookTouch);
+
+            // Butang Aksi Sentuh
+            document.getElementById('btn-touch-action').addEventListener('click', (e) => {
+                e.stopPropagation();
+                triggerPrimaryAction();
+            });
+        }
+
+        function updateJoystickPosition(clientX, clientY, zone, knob, maxRadius) {
+            const rect = zone.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+
+            let dx = clientX - centerX;
+            let dy = clientY - centerY;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist > maxRadius) {
+                dx = (dx / dist) * maxRadius;
+                dy = (dy / dist) * maxRadius;
+            }
+
+            knob.style.transform = `translate(${dx}px, ${dy}px)`;
+            joyVector.x = dx / maxRadius;
+            joyVector.y = dy / maxRadius;
+        }
+
+        /**
+         * Menentukan mod kawalan aktif (Touch Screen vs Keyboard)
+         */
+        function getEffectiveControllerMode() {
+            if (state.settings.controller === 'auto') {
+                const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || window.innerWidth < 900;
+                return isTouchDevice ? 'touch' : 'keyboard';
+            }
+            return state.settings.controller;
+        }
+
+        function applyControllerUI() {
+            const mode = getEffectiveControllerMode();
+            const touchLayer = document.getElementById('touch-controls-layer');
+            const lookZone = document.getElementById('look-zone');
+            const kbHint = document.getElementById('keyboard-hint');
+
+            if (!state.isPlaying) {
+                touchLayer.classList.add('hidden');
+                lookZone.classList.add('hidden');
+                kbHint.classList.add('hidden');
+                return;
+            }
+
+            if (mode === 'touch') {
+                touchLayer.classList.remove('hidden');
+                lookZone.classList.remove('hidden');
+                kbHint.classList.add('hidden');
+            } else {
+                touchLayer.classList.add('hidden');
+                lookZone.classList.add('hidden');
+                kbHint.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * =========================================================================
+         * SISTEM TETAPAN (LAGU, RESOLUTION, CONTROLLER, FULL SCREEN)
+         * =========================================================================
+         */
+        function applyResolutionSetting(level) {
+            state.settings.resolution = level;
+            if (!renderer) return;
+
+            let ratio = 1;
+            if (level === 'low') ratio = 0.65;
+            else if (level === 'medium') ratio = 1.0;
+            else if (level === 'high') ratio = Math.min(window.devicePixelRatio || 1.5, 2);
+
+            renderer.setPixelRatio(ratio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            // Kemas kini gaya butang aktif dalam modal tetapan
+            document.querySelectorAll('.res-btn').forEach(btn => {
+                if (btn.dataset.res === level) {
+                    btn.className = 'res-btn py-2 px-3 rounded-xl text-xs font-bold border border-sky-400 bg-sky-500 text-slate-950';
+                } else {
+                    btn.className = 'res-btn py-2 px-3 rounded-xl text-xs font-bold border border-white/10 bg-slate-700/60 text-slate-300';
+                }
+            });
+        }
+
+        function setupSettingsUI() {
+            const settingsModal = document.getElementById('settings-modal');
+
+            const openSettings = () => {
+                if (state.isPlaying) state.isPaused = true;
+                if (document.pointerLockElement) {
+                    try { document.exitPointerLock(); } catch (e) {}
+                }
+                settingsModal.classList.remove('hidden');
+            };
+
+            const closeSettings = () => {
+                settingsModal.classList.add('hidden');
+                if (state.isPlaying) state.isPaused = false;
+                applyControllerUI();
+            };
+
+            document.getElementById('btn-open-settings').addEventListener('click', openSettings);
+            document.getElementById('btn-start-settings').addEventListener('click', openSettings);
+            document.getElementById('btn-close-settings').addEventListener('click', closeSettings);
+            document.getElementById('btn-resume-game').addEventListener('click', closeSettings);
+
+            // 1. Butang Lagu (Muzik)
+            const musicBtn = document.getElementById('toggle-music-btn');
+            musicBtn.addEventListener('click', async () => {
+                await initAudio();
+                state.settings.musicEnabled = !state.settings.musicEnabled;
+                if (state.settings.musicEnabled) {
+                    musicBtn.textContent = 'HIDUP (ON)';
+                    musicBtn.className = 'btn-game px-4 py-2 rounded-xl font-bold text-xs bg-emerald-500 text-slate-950 shadow';
+                } else {
+                    musicBtn.textContent = 'MATI (OFF)';
+                    musicBtn.className = 'btn-game px-4 py-2 rounded-xl font-bold text-xs bg-slate-700 text-slate-300 shadow';
+                }
+            });
+
+            // 2. Pilihan Resolusi
+            document.querySelectorAll('.res-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    applyResolutionSetting(btn.dataset.res);
+                });
+            });
+
+            // 3. Pilihan Controller (Auto / Touch Screen / Keyboard)
+            document.querySelectorAll('.ctrl-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.settings.controller = btn.dataset.ctrl;
+                    document.querySelectorAll('.ctrl-btn').forEach(b => {
+                        if (b.dataset.ctrl === state.settings.controller) {
+                            b.className = 'ctrl-btn py-2 px-2 rounded-xl text-xs font-bold border border-sky-400 bg-sky-500 text-slate-950';
+                        } else {
+                            b.className = 'ctrl-btn py-2 px-2 rounded-xl text-xs font-bold border border-white/10 bg-slate-700/60 text-slate-300';
+                        }
+                    });
+                    applyControllerUI();
+                });
+            });
+
+            // 4. Butang Skrin Penuh (Full Screen)
+            const fsBtn = document.getElementById('btn-toggle-fullscreen');
+            const fsStatus = document.getElementById('fullscreen-status-text');
+
+            fsBtn.addEventListener('click', async () => {
+                try {
+                    if (!document.fullscreenElement) {
+                        await document.documentElement.requestFullscreen();
+                        fsBtn.textContent = 'Keluar Penuh';
+                        fsStatus.textContent = 'Mod skrin penuh sedang aktif';
+                    } else {
+                        await document.exitFullscreen();
+                        fsBtn.textContent = 'Skrin Penuh';
+                        fsStatus.textContent = 'Paparan penuh untuk pengalaman terbaik';
+                    }
+                } catch (err) {
+                    fsStatus.textContent = 'Skrin penuh disekat oleh pelayar pratonton ini';
+                }
+            });
+
+            document.addEventListener('fullscreenchange', () => {
+                if (document.fullscreenElement) {
+                    fsBtn.textContent = 'Keluar Penuh';
+                } else {
+                    fsBtn.textContent = 'Skrin Penuh';
+                }
+            });
+        }
+
+        /**
+         * =========================================================================
+         * KITARAN HIDUP PERMAINAN & GELUNG ANIMASI (GAME LOOP)
+         * =========================================================================
+         */
+        let timerInterval = null;
+
+        async function startGame() {
+            await initAudio();
+
+            // Tetapkan semula semua pembolehubah permainan
+            state.isPlaying = true;
+            state.isPaused = false;
+            state.score = 0;
+            state.lives = 3;
+            state.combo = 0;
+            state.sortedCount = 0;
+            state.timeLeft = 90;
+            state.heldFood = null;
+
+            while (heldItemContainer.children.length > 0) {
+                heldItemContainer.remove(heldItemContainer.children[0]);
+            }
+
+            // Posisi awal pemain menghadap meja makanan & zon pengelasan
+            camera.position.set(0, PLAYER_HEIGHT, 6.2);
+            yaw = 0;
+            pitch = -0.08;
+
+            // Paparkan HUD & sembunyikan skrin mula
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('gameover-modal').classList.add('hidden');
+            document.getElementById('hud-overlay').classList.remove('hidden');
+            document.getElementById('crosshair').classList.remove('hidden');
+
+            applyControllerUI();
+            updateHeldHUD();
+            updateHUD();
+            spawnTableFoods();
+
+            // Pemasa undur 1 saat
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (state.isPlaying && !state.isPaused) {
+                    state.timeLeft -= 1;
+                    updateHUD();
+                    if (state.timeLeft <= 0) {
+                        endGame(true);
+                    }
+                }
+            }, 1000);
+        }
+
+        function endGame(timeUp) {
+            state.isPlaying = false;
+            if (timerInterval) clearInterval(timerInterval);
+
+            if (document.pointerLockElement) {
+                try { document.exitPointerLock(); } catch (e) {}
+            }
+
+            document.getElementById('hud-overlay').classList.add('hidden');
+            document.getElementById('crosshair').classList.add('hidden');
+            document.getElementById('target-prompt').classList.add('hidden');
+            applyControllerUI();
+
+            const modal = document.getElementById('gameover-modal');
+            document.getElementById('final-score').textContent = state.score;
+            document.getElementById('final-sorted').textContent = `${state.sortedCount} Item`;
+
+            if (!timeUp && state.lives <= 0) {
+                document.getElementById('gameover-emoji').textContent = '💔';
+                document.getElementById('gameover-title').textContent = 'Nyawa Tamat!';
+                document.getElementById('gameover-subtitle').textContent = 'Cuba lagi dan perhatikan kategori makanan dengan teliti.';
+            } else {
+                document.getElementById('gameover-emoji').textContent = state.score >= 500 ? '🏆' : '🌟';
+                document.getElementById('gameover-title').textContent = 'Masa Tamat!';
+                document.getElementById('gameover-subtitle').textContent = 'Syabas! Anda berjaya melengkapkan misi pemakanan sihat.';
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        function onWindowResize() {
+            if (!camera || !renderer) return;
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            applyControllerUI();
+        }
+
+        /**
+         * Gelung animasi utama 60 FPS
+         */
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = Math.min(clock.getDelta(), 0.1);
+            const elapsed = clock.getElapsedTime();
+
+            // Animasi terapung & berputar untuk makanan di atas meja
+            state.activeTableFoods.forEach(foodObj => {
+                foodObj.rotation.y += delta * 1.1;
+                foodObj.position.y = foodObj.userData.baseY + Math.sin(elapsed * 2.5 + foodObj.userData.phase) * 0.05;
+            });
+
+            // Animasi gelung neon zon pengelasan
+            if (healthyRing && unhealthyRing) {
+                healthyRing.position.y = 1.65 + Math.sin(elapsed * 3) * 0.1;
+                unhealthyRing.position.y = 1.65 + Math.cos(elapsed * 3) * 0.1;
+            }
+
+            // Animasi item yang sedang dipegang di tangan pemain
+            if (state.heldFood && heldItemContainer.children.length > 0) {
+                heldItemContainer.children[0].rotation.y += delta * 1.4;
+            }
+
+            if (state.isPlaying && !state.isPaused) {
+                updatePlayerMovement(delta);
+                updateTargetDetection();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Mulakan aplikasi selepas tetingkap dimuat sepenuhnya
+        window.onload = function () {
+            initThreeJS();
+            setupControls();
+            setupSettingsUI();
+
+            document.getElementById('btn-start-game').addEventListener('click', startGame);
+            document.getElementById('btn-restart-game').addEventListener('click', startGame);
+
+            animate();
+        };
+    </script>
+</body>
+</html>
